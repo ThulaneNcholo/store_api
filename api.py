@@ -186,19 +186,30 @@ def delete_user(current_user, user_id):
 
 
 # Login route 
+def check_auth(username, password):
+    user = User.query.filter_by(username=username).first()
+    if not user:
+        return False
+    if check_password_hash(user.password, password):
+        return True
+    return False
+
+def authenticate():
+    return make_response('Could not verify', 401, {'WWW-Authenticate' : 'Basic realm="Login required!"'})
+
 @app.route('/login',  methods=["POST"])
 def login():
-    auth = request.authorization
+    data = request.get_json()
 
-    if not auth or not auth.username or not auth.password:
+    if not data or not 'username' in data or not 'password' in data:
         return make_response('Could not verify', 401, {'WWW-Authenticate' : 'Basic realm="Login required!"'})
 
-    user = User.query.filter_by(username=auth.username).first()
+    username = data['username']
+    password = data['password']
+    
+    if check_auth(username, password):
+        user = User.query.filter_by(username=username).first()
 
-    if not user:
-        return make_response('Could not verify', 401, {'WWW-Authenticate' : 'Basic realm="Login required!"'})
-
-    if check_password_hash(user.password, auth.password):
         user_info = {
             'id': user.id,
             'exp': datetime.datetime.utcnow() + datetime.timedelta(days=1),
@@ -216,11 +227,11 @@ def login():
         user_data['blocked'] = user.blocked
         user_data['token'] = token.decode('UTF-8')
         user_data['isAuthenticated'] = True
-
+        
         return jsonify({'user_data' : user_data})
-
-
+        
     return make_response('Could not verify', 401, {'WWW-Authenticate' : 'Basic realm="Login required!"'})
+
 
 # Stores endpoints 
 
