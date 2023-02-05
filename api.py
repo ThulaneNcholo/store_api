@@ -4,9 +4,11 @@ from werkzeug.security import generate_password_hash, check_password_hash
 import jwt
 import datetime
 from functools import wraps
+from flask_cors import CORS
 
 db = SQLAlchemy()
 app = Flask(__name__)
+CORS(app, origins='*')
 
 app.config['SECRET_KEY'] = 'thisissecret'
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///store.db'
@@ -16,7 +18,7 @@ db = SQLAlchemy(app)
 
 class User(db.Model):
     id = db.Column(db.Integer,primary_key=True)
-    name = db.Column(db.String(100))
+    username = db.Column(db.String(100))
     password = db.Column(db.String(80))
     admin = db.Column(db.Boolean)
     email = db.Column(db.String(200))
@@ -35,10 +37,12 @@ class Store(db.Model):
     user_id = db.Column(db.Integer)
 
 class Inventory(db.Model):
-    item_code = db.Column(db.Integer,primary_key=True)
+    id = db.Column(db.Integer,primary_key=True)
+    item_code = db.Column(db.String(300))
     item_description = db.Column(db.String(300))
     cost = db.Column(db.Float)
     price = db.Column(db.Float)
+    quantity = db.Column(db.Integer)
     store_id = db.Column(db.Integer)
     user_id = db.Column(db.Integer)
 
@@ -87,7 +91,7 @@ def get__users(current_user):
     for user in users:
         user_data = {}
         user_data['id'] = user.id
-        user_data['name'] = user.name
+        user_data['username'] = user.username
         user_data['email'] = user.email
         user_data['password'] = user.password
         user_data['admin'] = user.admin
@@ -96,7 +100,7 @@ def get__users(current_user):
 
     return jsonify({'users' : output}) , 200
 
-# Get User by ID 
+# view user 
 @app.route('/view-user/<user_id>', methods=["GET"])
 @token_required
 def view_user(current_user, user_id):
@@ -111,7 +115,7 @@ def view_user(current_user, user_id):
 
     user_data = {}
     user_data['id'] = user.id
-    user_data['name'] = user.name
+    user_data['username'] = user.username
     user_data['email'] = user.email
     user_data['password'] = user.password
     user_data['admin'] = user.admin
@@ -130,12 +134,12 @@ def add_user(current_user):
     data = request.get_json()
     hashed_password = generate_password_hash(data['password'],method='sha256')
 
-    new_user = User(name=data['name'],password=hashed_password, admin=data['admin'], email=data['email'], blocked=False)
+    new_user = User(username=data['username'],password=hashed_password, admin=data['admin'], email=data['email'], blocked=False)
     db.session.add(new_user)
     db.session.commit()
 
     user_data = {}
-    user_data['name'] = new_user.name
+    user_data['username'] = new_user.username
     user_data['password'] = new_user.password
 
     return jsonify({'message': 'success!', 'user': user_data}), 200
@@ -154,7 +158,7 @@ def update_user(current_user, user_id):
     if not user:
         return jsonify({'message' : 'No user found!'}), 400
 
-    user.name = request.json.get('name', user.name)
+    user.username = request.json.get('username', user.username)
     user.email = request.json.get('email', user.email)
     user.admin = request.json.get('admin', user.admin)
     user.blocked = request.json.get('blocked', user.blocked)
@@ -182,14 +186,14 @@ def delete_user(current_user, user_id):
 
 
 # Login route 
-@app.route('/login')
+@app.route('/login',  methods=["POST"])
 def login():
     auth = request.authorization
 
     if not auth or not auth.username or not auth.password:
         return make_response('Could not verify', 401, {'WWW-Authenticate' : 'Basic realm="Login required!"'})
 
-    user = User.query.filter_by(name=auth.username).first()
+    user = User.query.filter_by(username=auth.username).first()
 
     if not user:
         return make_response('Could not verify', 401, {'WWW-Authenticate' : 'Basic realm="Login required!"'})
@@ -205,7 +209,7 @@ def login():
 
         user_data = {}
         user_data['id'] = user.id
-        user_data['name'] = user.name
+        user_data['username'] = user.username
         user_data['email'] = user.email
         user_data['password'] = user.password
         user_data['admin'] = user.admin
@@ -362,6 +366,7 @@ def add_inventory(current_user):
         cost=data['cost'],
         price=data['price'],
         store_id=data['store_id'],
+        item_code=data['item_code'],
         user_id=current_user.id
         )
     db.session.add(add_inventory)
