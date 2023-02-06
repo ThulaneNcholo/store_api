@@ -199,24 +199,31 @@ def authenticate():
 
 @app.route('/login',  methods=["POST"])
 def login():
-    data = request.get_json()
+    data = request.get_json() or request.form
 
     if not data or not 'username' in data or not 'password' in data:
         return make_response('Could not verify', 401, {'WWW-Authenticate' : 'Basic realm="Login required!"'})
 
-    username = data['username']
-    password = data['password']
+    username = data.get('username')
+    password = data.get('password')
     
     if check_auth(username, password):
         user = User.query.filter_by(username=username).first()
 
-        user_info = {
+        access_token_info = {
             'id': user.id,
-            'exp': datetime.datetime.utcnow() + datetime.timedelta(days=1),
+            'exp': datetime.datetime.utcnow() + datetime.timedelta(minutes=30),
             'admin': user.admin
         }
 
-        token = jwt.encode(user_info, app.config['SECRET_KEY'])
+        refresh_token_info = {
+            'id': user.id,
+            'exp': datetime.datetime.utcnow() + datetime.timedelta(days=7),
+            'admin': user.admin
+        }
+
+        access_token = jwt.encode(access_token_info, app.config['SECRET_KEY'])
+        refresh_token = jwt.encode(refresh_token_info, app.config['SECRET_KEY'])
 
         user_data = {}
         user_data['id'] = user.id
@@ -225,12 +232,57 @@ def login():
         user_data['password'] = user.password
         user_data['admin'] = user.admin
         user_data['blocked'] = user.blocked
-        user_data['token'] = token.decode('UTF-8')
+        user_data['access_token'] = access_token.decode('UTF-8')
+        user_data['refresh_token'] = refresh_token.decode('UTF-8')
         user_data['isAuthenticated'] = True
         
-        return jsonify({'user_data' : user_data})
+        response = jsonify({'user_data': user_data})
+        response.set_cookie('access_token', access_token.decode('UTF-8'))
+        response.set_cookie('refresh_token', refresh_token.decode('UTF-8'))
+        return response
         
     return make_response('Could not verify', 401, {'WWW-Authenticate' : 'Basic realm="Login required!"'})
+
+@app.route('/refresh', methods=["POST"])
+def refresh():
+    refresh_token = request.cookies.get('refresh_token')
+    
+    if refresh_token:
+        try:
+            refresh_token_data = jwt.decode(refresh_token, app.config['SECRET_KEY'])
+            user = User.query.filter_by(id=refresh_token_data['id']).first()
+
+            access_token_info = {
+                'id': user.id,
+                'exp': datetime.datetime.utcnow() + datetime.timedelta(minutes=30),
+                'admin': user.admin
+            }
+            
+            access_token = jwt.encode(access_token_info, app.config['SECRET_KEY'])
+
+            user_data = {}
+            user_data['id'] = user.id
+            user_data['username'] = user.username
+            user_data['email'] = user.email
+            user_data['password'] = user.password
+            user_data['admin'] = user.admin
+            user_data['blocked'] = user.blocked
+            user_data['access_token'] = access_token.decode('UTF-8')
+            user_data['refresh_token'] = refresh_token
+            user_data['isAuthenticated'] = True
+
+            response = jsonify({'user_data': user_data})
+            response.set_cookie('access_token', access_token.decode('UTF-8'))
+            return response
+
+        except jwt.exceptions.ExpiredSignatureError:
+            return make_response("Refresh token has expired", 401)
+        except jwt.exceptions.DecodeError:
+            return make_response("Refresh token is invalid", 400)
+
+    return make_response("Refresh token is missing", 400)
+
+
 
 
 # Stores endpoints 
